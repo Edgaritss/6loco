@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { db, auth } from './firebase';
+import { signInAnonymously } from "firebase/auth";
+import { collection, addDoc, Timestamp, getDocs, query, where, orderBy } from "firebase/firestore";
 
 // --- Icon Components (SVGs) ---
 const CrownIcon = ({ className }) => (
@@ -20,6 +23,11 @@ const PlusIcon = ({ className }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
     <path fillRule="evenodd" d="M12 3.75a.75.75 0 01.75.75v6.75h6.75a.75.75 0 010 1.5h-6.75v6.75a.75.75 0 01-1.5 0v-6.75H4.5a.75.75 0 010-1.5h6.75V4.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
   </svg>
+);
+const HistoryIcon = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path fillRule="evenodd" d="M12 1.5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0V3.164a9.75 9.75 0 107.207 14.543.75.75 0 011.06 1.06 11.25 11.25 0 11-8.267-15.603.75.75 0 01.75.75zM12.75 6a.75.75 0 00-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 000-1.5h-3.75V6z" clipRule="evenodd" />
+    </svg>
 );
 const PaddleIcon = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -134,7 +142,8 @@ const generateFixedRounds = (pairs, courts) => {
 };
 
 // --- Child Components ---
-const SettingsScreen = ({ onStart }) => {
+const SettingsScreen = ({ onStart, onShowHistory }) => {
+  const [tournamentName, setTournamentName] = useState('');
   const [playersList, setPlayersList] = useState([]);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [mode, setMode] = useState('rotating');
@@ -174,17 +183,21 @@ const SettingsScreen = ({ onStart }) => {
   const handlePlayerSelect = (player) => { setSelectedPlayers(current => { if (current.includes(player)) { return current.filter(p => p !== player); } if (current.length < 2) { return [...current, player]; } return current; }); };
   const handleCreatePair = () => { if (selectedPlayers.length !== 2) return; const newPair = { id: `pair_${Date.now()}`, name: pairName.trim() || selectedPlayers.join(' y '), players: selectedPlayers }; setPairs([...pairs, newPair]); setSelectedPlayers([]); setPairName(''); };
   const handleDeletePair = (pairId) => { setPairs(current => current.filter(p => p.id !== pairId)); };
-  const handleStart = () => { if (playersList.length < (mode === 'rotating' ? 6 : 4)) { setError(mode === 'rotating' ? 'Se necesitan al menos 6 jugadores.' : 'Se necesitan al menos 4 jugadores.'); return; } if (mode === 'fixed' && playersList.length % 2 !== 0) { setError('El modo "Parejas Fijas" requiere un número par de jugadores.'); return; } const numCourts = parseInt(courts, 10); if (isNaN(numCourts) || numCourts < 1) { setError('El número de canchas debe ser al menos 1.'); return; } if (mode === 'fixed') { if (availablePlayers.length > 0) { setError('Todos los jugadores deben ser asignados a una pareja.'); return; } if (pairs.length < 2) { setError('Se necesitan al menos 2 parejas para iniciar.'); return; } onStart({ players: playersList, mode, courts: numCourts, pairs }); } else { onStart({ players: playersList, mode, courts: numCourts, pairs: null }); } setError(''); };
+  const handleStart = () => { if (!tournamentName.trim()) { setError('Por favor, dale un nombre al torneo.'); return; } if (playersList.length < (mode === 'rotating' ? 6 : 4)) { setError(mode === 'rotating' ? 'Se necesitan al menos 6 jugadores.' : 'Se necesitan al menos 4 jugadores.'); return; } if (mode === 'fixed' && playersList.length % 2 !== 0) { setError('El modo "Parejas Fijas" requiere un número par de jugadores.'); return; } const numCourts = parseInt(courts, 10); if (isNaN(numCourts) || numCourts < 1) { setError('El número de canchas debe ser al menos 1.'); return; } if (mode === 'fixed') { if (availablePlayers.length > 0) { setError('Todos los jugadores deben ser asignados a una pareja.'); return; } if (pairs.length < 2) { setError('Se necesitan al menos 2 parejas para iniciar.'); return; } onStart({ tournamentName: tournamentName.trim(), players: playersList, mode, courts: numCourts, pairs }); } else { onStart({ tournamentName: tournamentName.trim(), players: playersList, mode, courts: numCourts, pairs: null }); } setError(''); };
 
     return (
     <div className="w-full max-w-2xl mx-auto bg-white/10 backdrop-blur-md rounded-2xl p-6 md:p-8 shadow-2xl border border-white/20">
       <div className="text-center mb-6">
         <PaddleIcon className="w-16 h-16 mx-auto text-cyan-400 -mt-16 bg-gray-800 rounded-full p-3 border-4 border-gray-700"/>
-        <h1 className="text-3xl md:text-4xl font-bold text-white mt-4">6 Locos de Pádel Edgar</h1>
+        <h1 className="text-3xl md:text-4xl font-bold text-white mt-4">Configurar Torneo</h1>
         <p className="text-cyan-200 mt-2">Organiza tus torneos de forma rápida y sencilla.</p>
       </div>
       {error && <div className="bg-red-500/80 text-white p-3 rounded-lg mb-4 text-center">{error}</div>}
       <div className="space-y-6">
+        <div>
+          <label htmlFor="tournamentName" className="block text-sm font-medium text-cyan-200 mb-2">Nombre del Torneo</label>
+          <input id="tournamentName" type="text" value={tournamentName} onChange={(e) => setTournamentName(e.target.value)} className="w-full bg-gray-900/50 text-white rounded-lg p-3 border border-gray-600 focus:ring-2 focus:ring-cyan-500 transition duration-200" placeholder="Ej: Pádel de los Viernes"/>
+        </div>
         <div>
           <label htmlFor="playerNameInput" className="block text-sm font-medium text-cyan-200 mb-2">Añadir Jugador</label>
           <div className="flex gap-2">
@@ -243,6 +256,9 @@ const SettingsScreen = ({ onStart }) => {
           <input id="courts" type="number" value={courts} onChange={(e) => setCourts(e.target.value)} min="1" className="w-full bg-gray-900/50 text-white rounded-lg p-3 border border-gray-600 focus:ring-2 focus:ring-cyan-500 transition duration-200"/>
         </div>
         <button onClick={handleStart} className="w-full bg-green-500 text-gray-900 font-bold py-3 rounded-lg text-lg hover:bg-green-400 transition transform hover:scale-105 shadow-xl">Generar Rondas</button>
+      </div>
+      <div className="mt-4 text-center">
+        <button onClick={onShowHistory} className="inline-flex items-center gap-2 text-cyan-300 hover:text-cyan-100 transition-colors"> <HistoryIcon className="w-5 h-5" /> Ver Historial de Torneos </button>
       </div>
     </div>
   );
@@ -369,7 +385,7 @@ const QrCodeDisplay = ({ scores }) => {
     );
 };
 
-const FinalScreen = ({ scores, onRestart }) => {
+const FinalScreen = ({ scores, tournamentName, onRestart }) => {
     // ... (El código del componente FinalScreen se mantiene igual)
   const sortedScores = useMemo(() => { if (!scores) return []; return Object.values(scores).sort((a, b) => b.gamesWon - a.gamesWon); }, [scores]);
   if (sortedScores.length === 0) { return ( <div className="w-full max-w-2xl mx-auto bg-white/10 backdrop-blur-md rounded-2xl p-8 shadow-2xl border border-white/20 text-white text-center"><h1 className="text-3xl font-bold">No hay resultados.</h1><button onClick={onRestart} className="mt-8 w-full bg-cyan-500 text-gray-900 font-bold py-3 rounded-lg text-lg hover:bg-cyan-400 transition transform hover:scale-105 shadow-xl">Nuevo Torneo</button></div>) }
@@ -382,7 +398,7 @@ const FinalScreen = ({ scores, onRestart }) => {
     <div className="w-full max-w-2xl mx-auto bg-white/10 backdrop-blur-md rounded-2xl p-6 md:p-8 shadow-2xl border border-white/20 text-white text-center">
       <style>{keyframes}</style>
       <TrophyIcon className="w-24 h-24 mx-auto text-yellow-400" />
-      <h1 className="text-3xl md:text-4xl font-bold mt-4">¡Torneo Finalizado!</h1>
+      <h1 className="text-3xl md:text-4xl font-bold mt-4">{tournamentName || '¡Torneo Finalizado!'}</h1>
       <div className="my-8">
         <h2 className="text-2xl font-semibold text-cyan-300">{winners.length > 1 ? 'Ganadores' : 'Ganador'}</h2>
         <div className="mt-2 text-3xl font-bold text-yellow-300 bg-gray-900/50 py-4 px-6 rounded-lg relative">
@@ -409,40 +425,138 @@ const FinalScreen = ({ scores, onRestart }) => {
   );
 };
 
+const HistoryScreen = ({ history, onBack, isLoading, onViewDetails }) => {
+    if (isLoading) {
+        return <div className="text-white text-center">Cargando historial...</div>;
+    }
+
+    return (
+        <div className="w-full max-w-2xl mx-auto bg-white/10 backdrop-blur-md rounded-2xl p-6 md:p-8 shadow-2xl border border-white/20">
+            <h1 className="text-3xl font-bold text-white text-center mb-6">Historial de Torneos</h1>
+            {history.length === 0 ? (
+                <p className="text-gray-400 text-center">No hay torneos guardados.</p>
+            ) : (
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    {history.map(tourney => (
+                        <button key={tourney.id} onClick={() => onViewDetails(tourney)} className="w-full text-left bg-gray-900/50 p-4 rounded-lg border border-gray-700 hover:bg-gray-900/80 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <h2 className="text-xl font-bold text-cyan-300 truncate">{tourney.tournamentName}</h2>
+                            <p className="text-sm text-gray-400">{new Date(tourney.createdAt.seconds * 1000).toLocaleDateString()}</p>
+                            <div className="mt-2 flex items-center">
+                                <TrophyIcon className="w-5 h-5 text-yellow-400 mr-2" />
+                                <p className="text-white font-semibold">Ganador: {tourney.winnerName}</p>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+            <button onClick={onBack} className="mt-8 w-full bg-cyan-500 text-gray-900 font-bold py-3 rounded-lg text-lg hover:bg-cyan-400 transition transform hover:scale-105 shadow-xl">
+                Volver
+            </button>
+        </div>
+    );
+};
+
+const HistoryDetailScreen = ({ tournament, onBack }) => {
+    if (!tournament) {
+        return (
+            <div className="text-white text-center">
+                <p>No se pudo cargar el torneo.</p>
+                <button onClick={onBack} className="mt-4 text-cyan-300">Volver al historial</button>
+            </div>
+        );
+    }
+
+    const sortedScores = useMemo(() => {
+        if (!tournament.finalScores) return [];
+        // Adaptar para ambos modos de torneo
+        if (tournament.mode === 'rotating' && tournament.players) {
+            return tournament.players.map(player => tournament.finalScores[player] || { name: player, gamesWon: 0 })
+                .sort((a, b) => b.gamesWon - a.gamesWon);
+        } else {
+            return Object.values(tournament.finalScores).sort((a, b) => b.gamesWon - a.gamesWon);
+        }
+    }, [tournament]);
+
+    return (
+        <div className="w-full max-w-2xl mx-auto bg-white/10 backdrop-blur-md rounded-2xl p-6 md:p-8 shadow-2xl border border-white/20 text-white">
+            <h1 className="text-3xl font-bold text-center mb-2">{tournament.tournamentName}</h1>
+            <p className="text-center text-gray-400 mb-6">{new Date(tournament.createdAt.seconds * 1000).toLocaleDateString()}</p>
+
+            <div className="w-full bg-gray-900/50 rounded-lg p-4">
+                <h3 className="text-xl font-bold mb-4 text-center text-cyan-300">Ranking Final</h3>
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                    {sortedScores.map((score, index) => (
+                        <div key={score.name + index} className={`flex justify-between items-center p-3 rounded-md ${index === 0 ? 'bg-yellow-500/30' : 'bg-gray-800/60'}`}>
+                            <span className="font-semibold text-left break-words pr-4">{index + 1}. {score.name}</span>
+                            <span className="font-bold flex-shrink-0">{score.gamesWon} juegos</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <button onClick={onBack} className="mt-8 w-full bg-cyan-500 text-gray-900 font-bold py-3 rounded-lg text-lg hover:bg-cyan-400 transition transform hover:scale-105 shadow-xl">
+                Volver al Historial
+            </button>
+        </div>
+    );
+};
+
 // --- Main App Component ---
 export default function App() {
-  const [screen, setScreen] = useState('settings');
+  const [screen, setScreen] = useState('loading'); // Nuevo estado inicial: 'loading'
   const [tournament, setTournament] = useState(null);
   const [finalScores, setFinalScores] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // Estado para el usuario autenticado
+  const [history, setHistory] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [authReady, setAuthReady] = useState(false); // Nuevo estado para controlar la inicialización de la auth
+  const [selectedTournamentDetail, setSelectedTournamentDetail] = useState(null);
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const resultsData = urlParams.get('results');
-    if (resultsData) {
-        try {
-            const scores = JSON.parse(decodeURIComponent(resultsData));
-            setFinalScores(scores); setScreen('final');
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-        } catch (error) { console.error("Error parsing results from URL", error); }
-    }
-    try {
-      const savedState = localStorage.getItem('padelTournament');
-      if (savedState) {
-        const { screen, tournament, finalScores } = JSON.parse(savedState);
-        setScreen(screen); setTournament(tournament); setFinalScores(finalScores);
+    // Espera a que la autenticación de Firebase se inicialice.
+    // Esto es crucial para que la sesión anónima persista entre recargas.
+    const unsubscribe = auth.onAuthStateChanged(user => {
+      if (user) {
+        console.log("Usuario anónimo autenticado:", user.uid);
+        setCurrentUser(user);
+        setAuthReady(true);
+      } else {
+        // Si no hay usuario, intenta iniciar sesión.
+        // onAuthStateChanged se volverá a llamar con el nuevo usuario.
+        signInAnonymously(auth).catch(error => {
+          console.error("Error en la autenticación anónima:", error);
+          setAuthReady(true); // Marcar como listo incluso si hay error para no bloquear la app
+        });
       }
-    } catch (error) { console.error("Failed to load state from localStorage", error); }
+    });
+
+    return () => unsubscribe(); // Limpia el listener al desmontar el componente
   }, []);
 
   useEffect(() => {
-    try {
-      const stateToSave = { screen, tournament, finalScores };
-      localStorage.setItem('padelTournament', JSON.stringify(stateToSave));
-    } catch (error) { console.error("Failed to save state to localStorage", error); }
-  }, [screen, tournament, finalScores]);
+    // Una vez que la autenticación está lista y tenemos un usuario, cargamos el historial.
+    if (authReady && currentUser) {
+      const fetchHistory = async () => {
+        setIsLoadingHistory(true);
+        try {
+          const q = query(collection(db, "tournaments"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
+          const querySnapshot = await getDocs(q);
+          const tournamentsHistory = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setHistory(tournamentsHistory);
+        } catch (error) {
+          console.error("Error fetching tournament history: ", error);
+        }
+        setIsLoadingHistory(false);
+        setScreen('settings');
+      };
+      fetchHistory();
+    } else if (authReady) {
+      // Si la autenticación está lista pero no hay usuario (caso de error), vamos a settings.
+      setScreen('settings');
+    }
+  }, [authReady, currentUser]);
 
-  const handleStartTournament = ({ players, mode, courts, pairs: preformedPairs }) => {
+  const handleStartTournament = ({ tournamentName, players, mode, courts, pairs: preformedPairs }) => {
     let rounds = [];
     let pairs = preformedPairs || null;
     if (mode === 'rotating') {
@@ -458,18 +572,61 @@ export default function App() {
       }
       rounds = generateFixedRounds(pairs, parseInt(courts, 10));
     }
-    setTournament({ players, mode, courts, rounds, pairs });
+    setTournament({ tournamentName, players, mode, courts, rounds, pairs });
     setScreen('tournament');
   };
   
-  const handleFinishTournament = (scores) => { setFinalScores(scores); setScreen('final'); };
-  const handleRestart = () => { setScreen('settings'); setTournament(null); setFinalScores(null); localStorage.removeItem('padelTournament'); };
+  const handleFinishTournament = async (scores) => {
+    if (!currentUser) {
+      console.error("No hay usuario autenticado. No se puede guardar el torneo.");
+      return;
+    }
+
+    const sortedScores = Object.values(scores).sort((a, b) => b.gamesWon - a.gamesWon);
+    const winnerScore = sortedScores.length > 0 ? sortedScores[0].gamesWon : 0;
+    const winners = sortedScores.filter(s => s.gamesWon === winnerScore);
+    const winnerName = winners.map(w => w.name).join(' & ');
+
+    const tournamentData = {
+      ...tournament,
+      ownerId: currentUser.uid,
+      createdAt: Timestamp.now(),
+      finalScores: scores,
+      winnerName: winnerName,
+    };
+
+    // Para el modo rotativo, nos aseguramos de que la lista de jugadores se guarde,
+    // ya que es necesaria para reconstruir la vista de detalles.
+    if (tournament.mode === 'rotating') {
+        tournamentData.players = tournament.players;
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, "tournaments"), tournamentData);
+      console.log("Torneo guardado con ID: ", docRef.id);
+    } catch (e) {
+      console.error("Error al guardar el torneo: ", e);
+    }
+
+    setFinalScores(scores);
+    setScreen('final');
+  };
+
+  const handleViewHistoryDetails = (tournament) => {
+    setSelectedTournamentDetail(tournament);
+    setScreen('historyDetail');
+  };
+
+  const handleRestart = () => { setScreen('settings'); setTournament(null); setFinalScores(null); };
 
   const renderScreen = () => {
     switch (screen) {
+      case 'loading': return <div className="text-white text-2xl">Inicializando...</div>;
       case 'tournament': return <TournamentScreen tournament={tournament} setTournament={setTournament} onFinish={handleFinishTournament} />;
-      case 'final': return <FinalScreen scores={finalScores} onRestart={handleRestart} />;
-      case 'settings': default: return <SettingsScreen onStart={handleStartTournament} />;
+      case 'final': return <FinalScreen scores={finalScores} tournamentName={tournament?.tournamentName} onRestart={handleRestart} />;
+      case 'history': return <HistoryScreen history={history} onBack={() => setScreen('settings')} isLoading={isLoadingHistory} onViewDetails={handleViewHistoryDetails} />;
+      case 'historyDetail': return <HistoryDetailScreen tournament={selectedTournamentDetail} onBack={() => setScreen('history')} />;
+      case 'settings': default: return <SettingsScreen onStart={handleStartTournament} onShowHistory={() => setScreen('history')} />;
     }
   };
 
