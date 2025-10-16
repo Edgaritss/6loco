@@ -1,0 +1,48 @@
+type User @table {
+  displayName: String!
+  email: String!
+  skillLevel: Int!
+  createdAt: Timestamp!
+  photoUrl: String
+  bio: String
+  preferredHand: String
+}
+
+type Club @table {
+  name: String!
+  location: String!
+  createdAt: Timestamp!
+  owner: User!
+  description: String
+  imageUrl: String
+}
+
+type Match @table {
+  date: Date!
+  time: String!
+  location: String!
+  status: String!
+  createdAt: Timestamp!
+  createdBy: User!
+  club: Club
+  teamAscore: Int
+  teamBscore: Int
+  description: String
+}
+
+type MatchPlayer @table(key: ["user", "match"]) {
+  user: User!
+  match: Match!
+  role: String!
+  team: String!
+  status: String!
+  scoreContribution: Int
+}
+
+type Availability @table {
+  user: User!
+  dayOfWeek: String!
+  startTime: String!
+  endTime: String!
+  notes: String
+}
