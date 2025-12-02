@@ -98,3 +98,4 @@ Abre tu navegador y visita http://localhost:5173 (o la URL que indique la termin
 ☁️ Despliegue (Deploy)
 
 Este proyecto está preparado para ser desplegado fácilmente con Firebase Hosting. Sigue la guía oficial para conectar tu proyecto y desplegarlo con unos pocos comandos.
+Soy el greñas
