@@ -37,6 +37,12 @@ const PaddleIcon = ({ className }) => (
         <line x1="2" y1="12" x2="22" y2="12"></line>
     </svg>
 );
+const CourtIcon = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path d="M19.5 3.75H4.5a.75.75 0 00-.75.75v15a.75.75 0 00.75.75h15a.75.75 0 00.75-.75V4.5a.75.75 0 00-.75-.75zM4.5 18.75V9h15v9.75H4.5zM19.5 8.25H4.5V5.25h15v3z" />
+        <path d="M9 12.75a.75.75 0 00-.75.75v1.5a.75.75 0 001.5 0v-1.5a.75.75 0 00-.75-.75zM12.75 12a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5a.75.75 0 01.75-.75zM15.75 12.75a.75.75 0 00-.75.75v1.5a.75.75 0 001.5 0v-1.5a.75.75 0 00-.75-.75z" />
+    </svg>
+);
 
 // --- Helper Functions ---
 const shuffleArray = (array) => {
@@ -48,51 +54,91 @@ const shuffleArray = (array) => {
     return newArray;
 };
 
-const generateRotatingRounds = (players, courts) => {
-    const shuffledPlayers = shuffleArray(players);
-    const numPlayers = shuffledPlayers.length;
-    if (numPlayers < 4) return [];
+const generateRotatingRounds = (players, courts, courtNames) => {
+  const shuffledPlayers = shuffleArray(players);
+  const numPlayers = shuffledPlayers.length;
+  if (numPlayers < 4) return [];
 
-    const rounds = [];
-    const pairings = [];
-    for (let i = 0; i < numPlayers; i++) {
-        for (let j = i + 1; j < numPlayers; j++) {
-            pairings.push([shuffledPlayers[i], shuffledPlayers[j]]);
+  // 1. Generate all possible unique pairings
+  const allPairings = [];
+  for (let i = 0; i < numPlayers; i++) {
+    for (let j = i + 1; j < numPlayers; j++) {
+      allPairings.push([shuffledPlayers[i], shuffledPlayers[j]]);
+    }
+  }
+
+  // 2. Generate all possible unique matches from the pairings
+  const allMatches = [];
+  for (let i = 0; i < allPairings.length; i++) {
+    for (let j = i + 1; j < allPairings.length; j++) {
+      const pair1 = allPairings[i];
+      const pair2 = allPairings[j];
+      // Check if the two pairs have any common players
+      if (pair1.every(p => !pair2.includes(p))) {
+        allMatches.push([pair1, pair2]);
+      }
+    }
+  }
+
+  // 3. Generate rounds with fair resting rotation
+  const rounds = [];
+  let roundCount = 1;
+  const usedMatchIndices = new Set();
+  const playerPlayCount = shuffledPlayers.reduce((acc, player) => {
+    acc[player] = 0;
+    return acc;
+  }, {});
+
+  while (usedMatchIndices.size < allMatches.length) {
+    const roundMatches = [];
+    const playersInRound = new Set();
+    const potentialMatchIndices = [];
+
+    // Find the best set of matches for this round
+    const findMatches = (startIndex, currentMatches, currentPlayers) => {
+      if (currentMatches.length === courts) {
+        return currentMatches;
+      }
+
+      for (let i = startIndex; i < allMatches.length; i++) {
+        if (usedMatchIndices.has(i)) continue;
+
+        const matchPlayers = [...allMatches[i][0], ...allMatches[i][1]];
+        if (matchPlayers.every(p => !currentPlayers.has(p))) {
+          const result = findMatches(i + 1, [...currentMatches, i], new Set([...currentPlayers, ...matchPlayers]));
+          if (result) return result; // Found a full set
         }
+      }
+      return currentMatches; // Return what we could find
+    };
+
+    const matchIndicesForRound = findMatches(0, [], new Set());
+
+    if (matchIndicesForRound.length === 0) {
+      // Fallback for last few matches if findMatches fails
+      for (let i = 0; i < allMatches.length; i++) {
+        if (!usedMatchIndices.has(i)) {
+          matchIndicesForRound.push(i);
+          break;
+        }
+      }
+      if (matchIndicesForRound.length === 0) break;
     }
 
-    let roundCount = 1;
-    while (pairings.length > 0) {
-        const roundMatches = [];
-        const playersInRound = new Set();
-        const resting = new Set(shuffledPlayers);
-        
-        for (let i = 0; i < pairings.length && roundMatches.length < courts; i++) {
-            const pair1 = pairings[i];
-            if (playersInRound.has(pair1[0]) || playersInRound.has(pair1[1])) continue;
+    matchIndicesForRound.forEach(index => {
+      const [team1, team2] = allMatches[index];
+      roundMatches.push({ id: `m${roundCount}-${roundMatches.length + 1}`, team1, team2, score1: null, score2: null, court: courtNames[roundMatches.length % courtNames.length] });
+      [...team1, ...team2].forEach(p => playersInRound.add(p));
+      usedMatchIndices.add(index);
+    });
 
-            for (let j = i + 1; j < pairings.length; j++) {
-                const pair2 = pairings[j];
-                if (!playersInRound.has(pair2[0]) && !playersInRound.has(pair2[1]) && !pair1.includes(pair2[0]) && !pair1.includes(pair2[1])) {
-                    roundMatches.push({ id: `m${roundCount}-${roundMatches.length + 1}`, team1: pair1, team2: pair2, score1: null, score2: null });
-                    [...pair1, ...pair2].forEach(p => { playersInRound.add(p); resting.delete(p); });
-                    pairings.splice(j, 1);
-                    pairings.splice(i, 1);
-                    i--; // Adjust index after splice
-                    break;
-                }
-            }
-        }
-        if (roundMatches.length > 0) {
-            rounds.push({ id: roundCount++, matches: roundMatches, resting: Array.from(resting) });
-        } else {
-            break; // No more matches can be formed
-        }
-    }
-    return rounds;
+    const resting = shuffledPlayers.filter(p => !playersInRound.has(p));
+    rounds.push({ id: roundCount++, matches: roundMatches, resting });
+  }
+  return rounds;
 };
 
-const generateFixedRounds = (pairs, courts) => {
+const generateFixedRounds = (pairs, courts, courtNames) => {
     const shuffledPairs = shuffleArray(pairs);
     const numPairs = shuffledPairs.length;
     if (numPairs < 2) return [];
@@ -121,7 +167,8 @@ const generateFixedRounds = (pairs, courts) => {
                     pair1Id: pair1.id,
                     pair2Id: pair2.id,
                     score1: null,
-                    score2: null
+                    score2: null,
+                    court: courtNames[roundMatches.length % courtNames.length]
                 });
                 pairsInRound.add(pair1.id);
                 pairsInRound.add(pair2.id);
@@ -148,6 +195,7 @@ const SettingsScreen = ({ onStart, onShowHistory }) => {
   const [newPlayerName, setNewPlayerName] = useState('');
   const [mode, setMode] = useState('rotating');
   const [courts, setCourts] = useState('1');
+  const [courtNames, setCourtNames] = useState(['Cancha 1']);
   const [error, setError] = useState('');
   const [pairs, setPairs] = useState([]);
   const [selectedPlayers, setSelectedPlayers] = useState([]);
@@ -178,12 +226,33 @@ const SettingsScreen = ({ onStart, onShowHistory }) => {
   const playersInPairs = useMemo(() => pairs.flatMap(p => p.players), [pairs]);
   const availablePlayers = useMemo(() => playersList.filter(p => !playersInPairs.includes(p)), [playersList, playersInPairs]);
   
-  useEffect(() => { if (mode === 'rotating') { setPairs([]); setSelectedPlayers([]); setPairName(''); } }, [mode]);
+  useEffect(() => {
+    if (mode === 'rotating') {
+      setPairs([]);
+      setSelectedPlayers([]);
+      setPairName('');
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    const numCourts = parseInt(courts, 10) || 0;
+    if (numCourts > 0) {
+      setCourtNames(currentNames => {
+        const newNames = [...currentNames];
+        while (newNames.length < numCourts) { newNames.push(`Cancha ${newNames.length + 1}`); }
+        return newNames.slice(0, numCourts);
+      });
+    } else {
+      setCourtNames([]);
+    }
+  }, [courts]);
+
+  const handleCourtNameChange = (index, name) => { setCourtNames(currentNames => { const newNames = [...currentNames]; newNames[index] = name; return newNames; }); };
   
   const handlePlayerSelect = (player) => { setSelectedPlayers(current => { if (current.includes(player)) { return current.filter(p => p !== player); } if (current.length < 2) { return [...current, player]; } return current; }); };
   const handleCreatePair = () => { if (selectedPlayers.length !== 2) return; const newPair = { id: `pair_${Date.now()}`, name: pairName.trim() || selectedPlayers.join(' y '), players: selectedPlayers }; setPairs([...pairs, newPair]); setSelectedPlayers([]); setPairName(''); };
   const handleDeletePair = (pairId) => { setPairs(current => current.filter(p => p.id !== pairId)); };
-  const handleStart = () => { if (!tournamentName.trim()) { setError('Por favor, dale un nombre al torneo.'); return; } if (playersList.length < (mode === 'rotating' ? 6 : 4)) { setError(mode === 'rotating' ? 'Se necesitan al menos 6 jugadores.' : 'Se necesitan al menos 4 jugadores.'); return; } if (mode === 'fixed' && playersList.length % 2 !== 0) { setError('El modo "Parejas Fijas" requiere un número par de jugadores.'); return; } const numCourts = parseInt(courts, 10); if (isNaN(numCourts) || numCourts < 1) { setError('El número de canchas debe ser al menos 1.'); return; } if (mode === 'fixed') { if (availablePlayers.length > 0) { setError('Todos los jugadores deben ser asignados a una pareja.'); return; } if (pairs.length < 2) { setError('Se necesitan al menos 2 parejas para iniciar.'); return; } onStart({ tournamentName: tournamentName.trim(), players: playersList, mode, courts: numCourts, pairs }); } else { onStart({ tournamentName: tournamentName.trim(), players: playersList, mode, courts: numCourts, pairs: null }); } setError(''); };
+  const handleStart = () => { if (!tournamentName.trim()) { setError('Por favor, dale un nombre al torneo.'); return; } if (playersList.length < (mode === 'rotating' ? 6 : 4)) { setError(mode === 'rotating' ? 'Se necesitan al menos 6 jugadores.' : 'Se necesitan al menos 4 jugadores.'); return; } if (mode === 'fixed' && playersList.length % 2 !== 0) { setError('El modo "Parejas Fijas" requiere un número par de jugadores.'); return; } const numCourts = parseInt(courts, 10); if (isNaN(numCourts) || numCourts < 1) { setError('El número de canchas debe ser al menos 1.'); return; } if (courtNames.some(name => !name.trim())) { setError('Todos los nombres de las canchas deben estar completos.'); return; } if (mode === 'fixed') { if (availablePlayers.length > 0) { setError('Todos los jugadores deben ser asignados a una pareja.'); return; } if (pairs.length < 2) { setError('Se necesitan al menos 2 parejas para iniciar.'); return; } onStart({ tournamentName: tournamentName.trim(), players: playersList, mode, courts: numCourts, courtNames, pairs }); } else { onStart({ tournamentName: tournamentName.trim(), players: playersList, mode, courts: numCourts, courtNames, pairs: null }); } setError(''); };
 
     return (
     <div className="w-full max-w-2xl mx-auto bg-white/10 backdrop-blur-md rounded-2xl p-6 md:p-8 shadow-2xl border border-white/20">
@@ -255,6 +324,20 @@ const SettingsScreen = ({ onStart, onShowHistory }) => {
           <label htmlFor="courts" className="block text-sm font-medium text-cyan-200 mb-2">Canchas Disponibles</label>
           <input id="courts" type="number" value={courts} onChange={(e) => setCourts(e.target.value)} min="1" className="w-full bg-gray-900/50 text-white rounded-lg p-3 border border-gray-600 focus:ring-2 focus:ring-cyan-500 transition duration-200"/>
         </div>
+        {parseInt(courts, 10) > 0 && (
+          <>
+            <div className="space-y-3 bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+              <label className="block text-sm font-medium text-cyan-200">Nombres de las Canchas</label>
+              {courtNames.map((name, index) => (
+                <input 
+                  key={index} type="text" value={name}
+                  onChange={(e) => handleCourtNameChange(index, e.target.value)}
+                  className="w-full bg-gray-800 text-white rounded-lg p-2 border border-gray-600 focus:ring-2 focus:ring-cyan-500 transition duration-200"
+                  placeholder={`Nombre Cancha ${index + 1}`} />
+              ))}
+            </div>
+          </>
+        )}
         <button onClick={handleStart} className="w-full bg-green-500 text-gray-900 font-bold py-3 rounded-lg text-lg hover:bg-green-400 transition transform hover:scale-105 shadow-xl">Generar Rondas</button>
       </div>
       <div className="mt-4 text-center">
@@ -299,6 +382,10 @@ const MatchCard = ({ match, onScoreChange }) => {
     };
     return (
         <div className="bg-gray-900/70 rounded-lg p-4 border border-gray-700">
+            <div className="flex items-center justify-center gap-2 text-cyan-300 mb-3">
+                <CourtIcon className="w-5 h-5" />
+                <span className="font-semibold text-sm">{match.court}</span>
+            </div>
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-center">
                 <div className="font-semibold text-white break-words w-full sm:w-2/5">{match.team1.join(' y ')}</div>
                 <div className="flex items-center justify-center gap-2 flex-shrink-0">
@@ -556,23 +643,23 @@ export default function App() {
     }
   }, [authReady, currentUser]);
 
-  const handleStartTournament = ({ tournamentName, players, mode, courts, pairs: preformedPairs }) => {
+  const handleStartTournament = ({ tournamentName, players, mode, courts, courtNames, pairs: preformedPairs }) => {
     let rounds = [];
     let pairs = preformedPairs || null;
     if (mode === 'rotating') {
-      rounds = generateRotatingRounds(players, parseInt(courts, 10));
+      rounds = generateRotatingRounds(players, parseInt(courts, 10), courtNames);
     } else {
       if (!pairs) {
           const shuffledPlayers = shuffleArray([...players]);
           pairs = [];
           for (let i = 0; i < shuffledPlayers.length; i += 2) {
             const pairPlayers = [shuffledPlayers[i], shuffledPlayers[i+1]];
-            pairs.push({ id: `p${i/2 + 1}`, players: pairPlayers, name: pairPlayers.join(' y ') });
+            pairs.push({ id: `p${i/2 + 1}`, players: pairPlayers, name: pairPlayers.join(' y ') }); // eslint-disable-line
           }
       }
-      rounds = generateFixedRounds(pairs, parseInt(courts, 10));
+      rounds = generateFixedRounds(pairs, parseInt(courts, 10), courtNames);
     }
-    setTournament({ tournamentName, players, mode, courts, rounds, pairs });
+    setTournament({ tournamentName, players, mode, courts, courtNames, rounds, pairs });
     setScreen('tournament');
   };
   
